@@ -1,8 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json;
 
 namespace ZoomControls
 	{
@@ -108,9 +113,16 @@ namespace ZoomControls
 			return hwnd != IntPtr.Zero && IsWindowVisible( hwnd );
 			}
 
-		private void timer_Tick( object sender, EventArgs e )
+		bool zoomRunningPreviously = false;
+		private async void timer_Tick( object sender, EventArgs e )
 			{
-			EnableButtons( ZoomRunning() );
+			bool zoomRunning = ZoomRunning();
+			EnableButtons( zoomRunning );
+			if ( zoomRunning != zoomRunningPreviously )
+				{
+				zoomRunningPreviously = zoomRunning;
+				await SetSlackStatus( zoomRunning );
+				}
 			}
 
 		private void EnableButtons( bool enable )
@@ -202,5 +214,55 @@ namespace ZoomControls
 				this.ResumeLayout();
 				}
 			}
+
+		private static async Task SetSlackStatus( bool zoomIsRunning )
+			{
+			using ( var client = new HttpClient() )
+				{
+				using ( var request = new HttpRequestMessage( HttpMethod.Post, "https://slack.com/api/users.profile.set" ) )
+					{
+					request.Headers.Add( "Authorization", "Bearer xoxp-2524887812-2524887816-1793032636676-5c2e5fd5b7067556a6b99c2ecd66d064" );
+					var body = new slack_profile_request()
+						{
+						profile = new profile()
+							{
+							status_text = "On a Zoom call",
+							status_emoji = ":zoom-call:",
+							status_expiration = 0,
+							}
+						};
+					if ( !zoomIsRunning )
+						{
+						body.profile.status_text = "";
+						body.profile.status_emoji = "";
+						}
+					string json = JsonConvert.SerializeObject( body );
+					using ( var stringContent = new StringContent( json, Encoding.UTF8, "application/json" ) )
+						{
+						request.Content = stringContent;
+
+						using ( var response = await client
+							.SendAsync( request )
+							.ConfigureAwait( false ) )
+							{
+							response.EnsureSuccessStatusCode();
+							}
+						}
+					}
+				}
+
+			}
+		}
+
+	public class slack_profile_request
+		{
+		public profile profile { get; set; }
+		}
+
+	public class profile
+		{
+		public string status_text { get; set; }
+		public string status_emoji { get; set; }
+		public int status_expiration { get; set; }
 		}
 	}
